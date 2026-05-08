@@ -1,0 +1,1568 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<!-- スマホでの拡大縮小を禁止し、アプリのような操作感を実現 -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>カスタム・フラッシュカード</title>
+
+<!-- Google Fonts: 親しみやすい丸ゴシック -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700&display=swap" rel="stylesheet">
+
+<!-- 紙吹雪エフェクト用CDN -->
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+
+<style>
+  :root {
+    --text-color: #334155;
+    --bg-gradient: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+    --glass-bg: rgba(255, 255, 255, 0.45);
+    --glass-border: rgba(255, 255, 255, 0.6);
+    --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+    --primary: #38bdf8;
+    --good: #22c55e;
+    --bad: #ef4444;
+  }
+
+  * { box-sizing: border-box; }
+
+  /* 1画面完結レイアウト */
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: 'M PLUS Rounded 1c', sans-serif;
+    background: var(--bg-gradient);
+    color: var(--text-color);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden; /* 全体のスクロールを禁止 */
+  }
+
+  /* アプリコンテナ（グラスモーフィズム） */
+  #app-container {
+    width: 95%;
+    max-width: 480px;
+    height: 90vh;
+    max-height: 850px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: 24px;
+    box-shadow: var(--glass-shadow);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* レスポンシブ: スマホ画面では全画面表示 */
+  @media (max-width: 500px) {
+    #app-container {
+      width: 100%;
+      height: 100vh;
+      max-height: 100vh;
+      border-radius: 0;
+      border: none;
+    }
+  }
+
+  /* 画面切り替え用クラス */
+  .view {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.4s ease, transform 0.4s ease;
+    transform: translateY(10px);
+  }
+  .view.active {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  /* --- 共通コンポーネント --- */
+  h1, h2 { margin: 0 0 16px 0; text-align: center; }
+  
+  .btn {
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-radius: 16px;
+    padding: 12px 20px;
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-color);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .btn:hover {
+    background: rgba(255, 255, 255, 0.9);
+    transform: translateY(-2px);
+  }
+  .btn:active { transform: translateY(0); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+  
+  .btn.primary { background: rgba(56, 189, 248, 0.8); color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.2); border:none;}
+  .btn.primary:hover { background: rgba(14, 165, 233, 0.9); }
+  .btn.good { background: rgba(34, 197, 94, 0.8); color: white; border:none;}
+  .btn.bad { background: rgba(239, 68, 68, 0.8); color: white; border:none;}
+
+  /* --- 設定画面 (Home View) --- */
+  .control-group {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  select {
+    flex: 1;
+    padding: 10px;
+    border-radius: 12px;
+    border: 1px solid var(--glass-border);
+    background: rgba(255,255,255,0.7);
+    font-family: inherit;
+    font-size: 1rem;
+    outline: none;
+  }
+  .editor-container {
+    flex: 1;
+    min-height: 0; /* Flexboxのスクロールバグ回避 */
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 16px;
+  }
+  .editor-label {
+    font-size: 0.85rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: #475569;
+  }
+  textarea {
+    flex: 1;
+    width: 100%;
+    resize: none;
+    border-radius: 16px;
+    border: 1px solid var(--glass-border);
+    background: rgba(255, 255, 255, 0.5);
+    padding: 16px;
+    font-family: inherit;
+    font-size: 1rem;
+    line-height: 1.5;
+    outline: none;
+    box-shadow: inset 0 2px 10px rgba(0,0,0,0.05);
+    transition: background 0.3s;
+  }
+  textarea:focus { background: rgba(255, 255, 255, 0.8); border-color: var(--primary); }
+
+  /* --- 表形式エディタのスタイル --- */
+  .data-table {
+    flex: 1;
+    overflow-y: auto;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.4);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border: 1px solid var(--glass-border);
+    box-shadow: inset 0 2px 10px rgba(0,0,0,0.05);
+  }
+  .data-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .data-row input {
+    flex: 1;
+    min-width: 0; /* フレックスコンテナ内の縮小を許可 */
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    background: rgba(255, 255, 255, 0.7);
+    font-family: inherit;
+    font-size: 1rem;
+    outline: none;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .data-row input:focus {
+    background: rgba(255, 255, 255, 0.95);
+    border-color: var(--primary);
+  }
+  .del-row-btn {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    border: none;
+    border-radius: 8px;
+    width: 36px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 1.1rem;
+    transition: all 0.2s;
+    flex-shrink: 0;
+  }
+  .del-row-btn:hover {
+    background: rgba(239, 68, 68, 0.9);
+    color: white;
+  }
+  /* スクロールバーを少し細く綺麗にする */
+  .data-table::-webkit-scrollbar { width: 6px; }
+  .data-table::-webkit-scrollbar-track { background: transparent; }
+  .data-table::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 4px; }
+
+  /* --- プレイ画面 (Play View) --- */
+  .header-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+  .progress-text { font-weight: 700; font-size: 1.2rem; }
+  
+  .card-container {
+    flex: 1;
+    min-height: 0;
+    perspective: 1000px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 24px;
+  }
+  .card {
+    width: 100%;
+    height: 100%;
+    max-height: 350px;
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform 0.5s cubic-bezier(0.4, 0.2, 0.2, 1);
+    cursor: pointer;
+  }
+  .card.flipped { transform: rotateY(180deg); }
+  
+  .card-face {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    backface-visibility: hidden;
+    background: rgba(255, 255, 255, 0.85);
+    border-radius: 24px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    border: 2px solid white;
+  }
+  .card-back { transform: rotateY(180deg); background: rgba(248, 250, 252, 0.95); }
+  
+  .card-label {
+    position: absolute;
+    top: 16px;
+    font-size: 0.85rem;
+    color: #94a3b8;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+  }
+  .card-text {
+    font-size: clamp(2rem, 8vw, 3.5rem);
+    font-weight: 700;
+    text-align: center;
+    line-height: 1.3;
+    word-break: break-word;
+  }
+
+  .action-area { display: flex; flex-direction: column; gap: 12px; }
+  .judge-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  /* --- 結果画面 (Result View) --- */
+  .result-box {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  .score { font-size: 4rem; font-weight: 700; color: var(--primary); margin: 10px 0; }
+  .stat-row { display: flex; gap: 20px; margin-bottom: 30px; }
+  .stat-item { background: rgba(255,255,255,0.6); padding: 10px 20px; border-radius: 12px; font-weight: 700;}
+
+  /* トースト通知 */
+  #toast {
+    position: fixed;
+    top: 20px; left: 50%;
+    transform: translateX(-50%) translateY(-20px);
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    opacity: 0;
+    transition: all 0.3s;
+    pointer-events: none;
+    z-index: 1000;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* --- 実績・称号 --- */
+  .achievement-box {
+    background: rgba(255, 255, 255, 0.6);
+    border-radius: 16px;
+    padding: 12px;
+    margin-bottom: 10px;
+    text-align: center;
+    border: 1px solid rgba(255,255,255,0.8);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+  }
+  .title-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #f6d365 0%, #fda085 100%);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 0.9rem;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    margin-bottom: 8px;
+  }
+  .stamps {
+    min-height: 1.8rem;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
+  }
+  /* はなまる画像のスタイル */
+  .hanamaru-img {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+  }
+  .hanamaru-large {
+    width: 90px;
+    height: 90px;
+    object-fit: contain;
+  }
+  .stamp-anim {
+    animation: stampPop 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  }
+  @keyframes stampPop {
+    0% { transform: scale(0) rotate(-20deg); opacity: 0; }
+    50% { transform: scale(1.5) rotate(10deg); }
+    100% { transform: scale(1) rotate(0deg); opacity: 1; }
+  }
+  .new-title-msg {
+    color: #ef4444;
+    font-weight: bold;
+    font-size: 1.1rem;
+    margin-top: 10px;
+    animation: bounce 1s infinite;
+  }
+  @keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-5px); }
+  }
+
+  /* --- モーダルダイアログ（名前入力用） --- */
+  .modal-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+  }
+  .modal-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .modal-content {
+    background: white;
+    padding: 24px;
+    border-radius: 20px;
+    width: 90%;
+    max-width: 400px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    transform: translateY(20px);
+    transition: transform 0.3s;
+  }
+  .modal-overlay.active .modal-content {
+    transform: translateY(0);
+  }
+</style>
+</head>
+<body>
+
+<div id="toast">保存しました</div>
+
+<!-- カスタムモーダル（名前・パスワード入力用） -->
+<div id="input-modal" class="modal-overlay">
+  <div class="modal-content">
+    <h3 id="modal-title" style="margin-top:0; color:var(--text-color); white-space: pre-wrap;">名前を入力</h3>
+    <input type="text" id="modal-input" style="width:100%; padding:12px; border-radius:12px; border:1px solid #ccc; font-size:1.1rem; margin-bottom:16px; outline:none;" />
+    <div style="display:flex; gap:10px;">
+      <button class="btn" id="modal-cancel" style="flex:1;">キャンセル</button>
+      <button class="btn primary" id="modal-ok" style="flex:1;">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- ★ 確認用モーダル（削除時など） -->
+<div id="confirm-modal" class="modal-overlay">
+  <div class="modal-content" style="text-align:center;">
+    <h3 id="confirm-msg" style="margin-top:0; color:var(--text-color); font-size:1.2rem; line-height:1.5;">本当に実行しますか？</h3>
+    <div style="display:flex; gap:10px; margin-top:24px;">
+      <button class="btn" id="confirm-cancel" style="flex:1;">キャンセル</button>
+      <button class="btn bad" id="confirm-ok" style="flex:1;">削除する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ★ アラート（警告）用モーダル -->
+<div id="alert-modal" class="modal-overlay">
+  <div class="modal-content" style="text-align:center;">
+    <h3 id="alert-msg" style="margin-top:0; color:var(--text-color); font-size:1.1rem; line-height:1.5; white-space:pre-wrap;"></h3>
+    <button class="btn primary" id="alert-ok" style="width:100%; margin-top:20px;">OK</button>
+  </div>
+</div>
+
+<!-- ★ 一括入力用モーダル -->
+<div id="bulk-modal" class="modal-overlay">
+  <div class="modal-content" style="max-width: 500px;">
+    <h3 style="margin-top:0; color:var(--text-color);">Excelから一括入力</h3>
+    <p style="font-size:0.9rem; color:#64748b; margin-bottom:12px;">Excelやスプレッドシートでコピーした「問題」と「答え」の2列のデータを、下の枠に貼り付けてください。（カンマ区切りのテキストにも対応しています）</p>
+    <textarea id="bulk-input-area" style="width:100%; height:150px; padding:12px; border-radius:12px; border:1px solid #ccc; font-size:1rem; margin-bottom:16px; outline:none; resize:none;" placeholder="ここへ貼り付け（ペースト）"></textarea>
+    <div style="display:flex; gap:10px;">
+      <button class="btn" id="bulk-cancel" style="flex:1;">キャンセル</button>
+      <button class="btn primary" id="bulk-ok" style="flex:1;">データを取り込む</button>
+    </div>
+  </div>
+</div>
+
+<div id="app-container">
+  
+  <!-- 【0】スタート画面 (子供向け) -->
+  <div id="view-start" class="view active">
+    <div style="position: absolute; top: 16px; right: 16px;">
+      <button class="btn" id="go-settings-btn" style="padding: 8px 16px; border-radius: 20px; background: rgba(255,255,255,0.6); font-size: 0.9rem;" title="設定画面を開く">⚙️ 設定</button>
+    </div>
+    <h2 style="margin-top: 20px; font-size: 1.8rem; color: var(--primary);">フラッシュカード</h2>
+    
+    <!-- ★ 実績表示エリア -->
+    <div class="achievement-box" id="start-achievement">
+      <div class="title-badge" id="start-title-badge">見習い</div>
+      <div style="font-size: 0.85rem; color: #64748b; margin-bottom:4px;">集めたスタンプ（パーフェクト回数: <span id="perfect-count">0</span>）</div>
+      <div class="stamps" id="start-stamps"></div>
+    </div>
+    
+    <div style="flex:1; display:flex; flex-direction:column; justify-content:center; gap: 16px; padding: 0 10px;">
+      <div>
+        <div style="font-weight:700; margin-bottom:8px; text-align:center; color: #475569;">テストする問題セット</div>
+        <select id="start-set-select" style="width:100%; font-size:1.2rem; padding:16px; border-radius: 16px;"></select>
+      </div>
+
+      <div>
+        <div style="font-weight:700; margin-bottom:8px; text-align:center; color: #475569;">出題モード</div>
+        <select id="start-mode-select" style="width:100%; font-size:1.2rem; padding:16px; border-radius: 16px;">
+          <option value="all">全問テストする</option>
+          <option value="random10">ランダムに10問</option>
+          <option value="random20">ランダムに20問</option>
+        </select>
+      </div>
+
+      <button class="btn primary" id="start-test-btn" style="padding: 24px; font-size: 1.4rem; margin-top:16px; border-radius: 20px;">▶ テスト開始！</button>
+    </div>
+  </div>
+
+  <!-- 【1】設定画面 (先生向け) -->
+  <div id="view-home" class="view">
+    <div class="header-bar" style="margin-bottom: 12px;">
+      <button class="btn" id="close-settings-btn" style="padding: 6px 12px; font-size:0.85rem;">◀ 戻る</button>
+      <h2 style="margin:0; font-size:1.2rem;">設定</h2>
+      <button class="btn" id="change-pw-btn" style="padding: 6px 12px; font-size:0.85rem;" title="パスワードを変更">🔑 PW変更</button>
+    </div>
+    
+    <div class="control-group">
+      <select id="set-select" style="min-width: 140px;"></select>
+      <button class="btn" id="rename-set-btn" title="セット名を変更" style="padding: 8px;">✏️ 名前変更</button>
+      <button class="btn" id="new-set-btn" title="新しいセットを作成" style="padding: 8px;">＋ 新規追加</button>
+      <button class="btn" id="share-all-btn" title="今ある問題セットを全部まとめて子ども用URLにする" style="padding: 8px; background: rgba(56, 189, 248, 0.7); color:#fff; border:none;">🔗 共有</button>
+      <button class="btn" id="del-set-btn" title="このセットを削除" style="padding: 8px;">🗑️ 削除</button>
+    </div>
+
+    <div class="editor-container">
+      <div class="editor-label" style="display: flex; justify-content: space-between; align-items: center;">
+        <span>問題データ</span>
+        <div style="display:flex; gap:8px;">
+          <!-- ★ 一括入力ボタンを追加 -->
+          <button id="bulk-input-btn" class="btn" style="padding: 4px 10px; font-size: 0.8rem; border-radius: 8px; background: rgba(255,255,255,0.8);">📋 Excel一括入力</button>
+          <button id="add-row-btn" class="btn" style="padding: 4px 10px; font-size: 0.8rem; border-radius: 8px; background: rgba(255,255,255,0.8);">＋ 行を追加</button>
+        </div>
+      </div>
+      <div id="data-table" class="data-table">
+        <!-- JSでここに行が追加されます -->
+      </div>
+    </div>
+
+    <button class="btn primary" id="save-btn" style="width:100%; padding:14px; margin-top:10px;">保存して戻る</button>
+  </div>
+
+  <!-- 【2】プレイ画面 -->
+  <div id="view-play" class="view">
+    <div class="header-bar">
+      <button class="btn" id="back-home-btn" style="padding: 6px 12px; font-size:0.85rem;">◀ 戻る</button>
+      <div class="progress-text"><span id="current-num">1</span> / <span id="total-num">10</span></div>
+    </div>
+
+    <div class="card-container">
+      <div class="card" id="flashcard">
+        <div class="card-face">
+          <div class="card-label">もんだい</div>
+          <div class="card-text" id="card-front">表</div>
+        </div>
+        <div class="card-face card-back">
+          <div class="card-label">こたえ</div>
+          <div class="card-text" id="card-back">裏</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="action-area">
+      <button class="btn primary" id="reveal-btn" style="padding: 16px;">答えを見る (Space)</button>
+      <div class="judge-btns">
+        <button class="btn bad" id="ng-btn" disabled>✖ わからなかった</button>
+        <button class="btn good" id="ok-btn" disabled>〇 正解した！</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 【3】結果画面 -->
+  <div id="view-result" class="view">
+    <div class="result-box">
+      <h2 id="result-title">テスト終了！</h2>
+      <div class="score" id="result-score">100%</div>
+      
+      <!-- ★ 新しい称号獲得メッセージ -->
+      <div id="new-title-msg" class="new-title-msg" style="display:none;">🎉 新しい称号「<span id="new-title-name"></span>」を獲得！</div>
+      
+      <div class="stat-row" style="margin-top: 10px; margin-bottom: 10px;">
+        <div class="stat-item" style="color: var(--good);">〇 正解: <span id="res-ok">0</span></div>
+        <div class="stat-item" style="color: var(--bad);">✖ 誤答: <span id="res-ng">0</span></div>
+      </div>
+
+      <!-- ★ 獲得したスタンプのアニメーション表示 -->
+      <div id="result-stamp" style="font-size: 4.5rem; height: 80px; display:flex; align-items:center; justify-content:center; margin-bottom:20px;"></div>
+
+      <div style="display:flex; flex-direction:column; gap:12px; width:100%;">
+        <!-- ★ 結果を報告するボタンを追加 -->
+        <button class="btn good" id="report-btn" style="padding:16px;">📋 結果をコピーして先生に報告</button>
+        <button class="btn primary" id="retry-ng-btn" style="display:none; padding:16px;">間違えた問題だけ復習</button>
+        <button class="btn" id="retry-all-btn">もう一度最初から</button>
+        <button class="btn" id="to-home-btn">最初の画面に戻る</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ==========================================
+// 1. 初期データと状態管理
+// ==========================================
+const DEFAULT_DATA = {
+  "サンプル（4年生の漢字）": [
+    {front:"努力", back:"どりょく"},
+    {front:"成功", back:"せいこう"},
+    {front:"友達", back:"ともだち"},
+    {front:"健康", back:"けんこう"},
+    {front:"協力", back:"きょうりょく"}
+  ]
+};
+
+let appData = {};
+let currentSetName = "";
+let playDeck = [];
+let wrongCards = [];
+let currentCardIndex = 0;
+let stats = { ok: 0, ng: 0 };
+let isFlipped = false;
+let isSharedMode = sessionStorage.getItem('custom_flashcards_shared') === 'true'; // ★修正: セッション中は共有モードを維持
+let isRetry = false; // ★ やり直し（復習）モードかどうかを判定するフラグ
+
+// ★ 管理者（先生）用パスワード
+let adminPassword = localStorage.getItem('custom_flashcards_password');
+
+// ★ 実績データ
+let achievements = { perfects: 0 };
+const TITLES = [
+  { min: 0, name: "見習い" },
+  { min: 1, name: "ルーキー" },
+  { min: 3, name: "ブロンズチャレンジャー" },
+  { min: 5, name: "シルバーヒーロー" },
+  { min: 10, name: "ゴールドマスター" },
+  { min: 20, name: "プラチナレジェンド" },
+  { min: 50, name: "フラッシュカード神" }
+];
+
+// ★ はなまる画像（インラインSVG / data URI）— 外部URL依存を排除
+// 8枚の花びら + 二重丸の手書き風「はなまる」
+const HANAMARU_SVG_URL = 'data:image/svg+xml;utf8,' + encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <g transform="translate(50 50)">
+    <g fill="#ff4d6d">
+      <ellipse cx="0" cy="-32" rx="12" ry="18"/>
+      <ellipse cx="0" cy="-32" rx="12" ry="18" transform="rotate(45)"/>
+      <ellipse cx="0" cy="-32" rx="12" ry="18" transform="rotate(90)"/>
+      <ellipse cx="0" cy="-32" rx="12" ry="18" transform="rotate(135)"/>
+      <ellipse cx="0" cy="-32" rx="12" ry="18" transform="rotate(180)"/>
+      <ellipse cx="0" cy="-32" rx="12" ry="18" transform="rotate(225)"/>
+      <ellipse cx="0" cy="-32" rx="12" ry="18" transform="rotate(270)"/>
+      <ellipse cx="0" cy="-32" rx="12" ry="18" transform="rotate(315)"/>
+    </g>
+    <circle cx="0" cy="0" r="22" fill="#ffd93d"/>
+    <circle cx="0" cy="0" r="18" fill="none" stroke="#d90429" stroke-width="3"/>
+    <circle cx="0" cy="0" r="12" fill="none" stroke="#d90429" stroke-width="3"/>
+  </g>
+</svg>`);
+
+// ★修正: 外部URL（Wikimedia）依存をやめ、Web Audio APIでブラウザ内部で音を合成。
+//        これで学校のフィルタリング環境やオフラインでも確実に鳴る。
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) {
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (e) { audioCtx = null; }
+  }
+  return audioCtx;
+}
+function playTone(frequencies, duration = 0.25, type = 'sine') {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  // モバイルでは最初のタップ後でないとresumeしない
+  if (ctx.state === 'suspended') ctx.resume().catch(()=>{});
+  const now = ctx.currentTime;
+  frequencies.forEach((freq, idx) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    const start = now + idx * 0.08;
+    const stop = start + duration;
+    // フェードイン・フェードアウトでクリック音を防ぐ
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(0.2, start + 0.01);
+    gain.gain.linearRampToValueAtTime(0, stop);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(start);
+    osc.stop(stop);
+  });
+}
+const sounds = {
+  ok: { play: () => playTone([784, 1047], 0.2, 'sine'), currentTime: 0 }, // ピンポン系（G5→C6）
+  ng: { play: () => playTone([220, 185], 0.3, 'sawtooth'), currentTime: 0 } // ブブー系
+};
+
+// ==========================================
+// 2. DOM要素の取得
+// ==========================================
+const $ = id => document.getElementById(id);
+
+const views = {
+  start: $('view-start'),
+  home: $('view-home'),
+  play: $('view-play'),
+  result: $('view-result')
+};
+
+const ui = {
+  startSetSelect: $('start-set-select'), startModeSelect: $('start-mode-select'), startTestBtn: $('start-test-btn'),
+  goSettingsBtn: $('go-settings-btn'), closeSettingsBtn: $('close-settings-btn'), changePwBtn: $('change-pw-btn'),
+  setSelect: $('set-select'), dataTable: $('data-table'), addRowBtn: $('add-row-btn'), bulkInputBtn: $('bulk-input-btn'),
+  newSetBtn: $('new-set-btn'), renameSetBtn: $('rename-set-btn'), shareAllBtn: $('share-all-btn'), delSetBtn: $('del-set-btn'), saveBtn: $('save-btn'),
+  
+  card: $('flashcard'), cardFront: $('card-front'), cardBack: $('card-back'),
+  currNum: $('current-num'), totalNum: $('total-num'),
+  revealBtn: $('reveal-btn'), okBtn: $('ok-btn'), ngBtn: $('ng-btn'), backHomeBtn: $('back-home-btn'),
+  
+  resTitle: $('result-title'), resScore: $('result-score'), resOk: $('res-ok'), resNg: $('res-ng'),
+  retryNgBtn: $('retry-ng-btn'), retryAllBtn: $('retry-all-btn'), toHomeBtn: $('to-home-btn'), reportBtn: $('report-btn'),
+  toast: $('toast'),
+  
+  // モーダル用
+  modal: $('input-modal'), modalTitle: $('modal-title'), modalInput: $('modal-input'),
+  modalOk: $('modal-ok'), modalCancel: $('modal-cancel'),
+  
+  // ★ 確認モーダル用
+  confirmModal: $('confirm-modal'), confirmMsg: $('confirm-msg'), confirmOk: $('confirm-ok'), confirmCancel: $('confirm-cancel'),
+  
+  // ★ アラートモーダル用
+  alertModal: $('alert-modal'), alertMsg: $('alert-msg'), alertOk: $('alert-ok'),
+
+  // ★ 一括入力モーダル用
+  bulkModal: $('bulk-modal'), bulkInputArea: $('bulk-input-area'), bulkOk: $('bulk-ok'), bulkCancel: $('bulk-cancel'),
+  
+  // 実績用
+  startTitleBadge: $('start-title-badge'), perfectCount: $('perfect-count'), startStamps: $('start-stamps'),
+  newTitleMsg: $('new-title-msg'), newTitleName: $('new-title-name'), resultStamp: $('result-stamp')
+};
+
+// ==========================================
+// 3. アプリケーションの初期化
+// ==========================================
+function initApp() {
+  loadData();
+  loadAchievements(); // 実績の読み込み
+  
+  // ★追加：URLパラメータからの共有データ読み込み
+  const urlParams = new URLSearchParams(window.location.search);
+  const sharedData = urlParams.get('share');
+  const sharedAll  = urlParams.get('shareAll'); // ★ 新規：全セット共有
+  
+  // ===== ① 全セット共有（先生の問題セット一式で丸ごと置き換える） =====
+  if (sharedAll) {
+    try {
+      const decodedStr = decodeURIComponent(escape(atob(sharedAll)));
+      const parsedAll = JSON.parse(decodedStr);
+      
+      if (parsedAll && typeof parsedAll === 'object' && Object.keys(parsedAll).length > 0) {
+        // ★ 重要：追加ではなく完全置換。これで「(1)(2)」問題は発生しない
+        // ★ 重要：localStorageには保存しない。sessionStorageのみ。
+        //         → ブラウザを閉じれば元のデータに戻るので、
+        //           先生が誤って子ども用URLを踏んでも先生のデータは守られる
+        appData = parsedAll;
+        currentSetName = Object.keys(appData)[0];
+        sessionStorage.setItem('custom_flashcards_shared_data', JSON.stringify(appData));
+        
+        // 子ども用モード：編集画面・共有・削除などを隠す
+        isSharedMode = true;
+        sessionStorage.setItem('custom_flashcards_shared', 'true');
+        ui.goSettingsBtn.style.display = 'none';
+        
+        showToast("先生の問題を読み込みました！");
+      }
+    } catch(e) {
+      showAlertModal("共有リンクの読み込みに失敗しました。\nURLが途切れている可能性があります。");
+    }
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+  // ===== ② 1セットだけの共有（旧仕様・後方互換のため残す） =====
+  else if (sharedData) {
+    try {
+      // 暗号化されたデータを復元
+      const decodedStr = decodeURIComponent(escape(atob(sharedData)));
+      const parsedData = JSON.parse(decodedStr);
+      
+      if (parsedData.name && parsedData.data) {
+        let setName = parsedData.name;
+        // ★修正：同じ名前のセットがあれば「上書き」する（以前は (1)(2) と増えていた）
+        // ★ 重要：旧仕様の個別共有も localStorage には保存しない
+        appData = { [setName]: parsedData.data };
+        currentSetName = setName;
+        sessionStorage.setItem('custom_flashcards_shared_data', JSON.stringify(appData));
+        
+        // ★修正: 共有モードのフラグをセッションストレージに保存（リロードでも維持される）
+        isSharedMode = true;
+        sessionStorage.setItem('custom_flashcards_shared', 'true');
+        ui.goSettingsBtn.style.display = 'none';
+        
+        showToast("共有された問題セットを読み込みました！");
+      }
+    } catch(e) {
+      // ★修正: 標準のalert()ではなく独自モーダルに統一
+      showAlertModal("共有リンクの読み込みに失敗しました。\nURLが途切れている可能性があります。");
+    }
+    // URLをきれいに（パラメータを消去）
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+  
+  // ★修正: セッション中の共有モード復元（リロード対応）
+  // リロード時は sessionStorage から共有データを復元
+  if (isSharedMode && !sharedAll && !sharedData) {
+    try {
+      const cachedData = sessionStorage.getItem('custom_flashcards_shared_data');
+      if (cachedData) {
+        appData = JSON.parse(cachedData);
+        currentSetName = Object.keys(appData)[0];
+      }
+    } catch(e) {}
+    ui.goSettingsBtn.style.display = 'none';
+  }
+
+  renderSelect();
+  loadSetToEditor();
+  showView('start'); // 初期画面をスタート画面に変更
+}
+
+function loadData() {
+  try {
+    const saved = localStorage.getItem('custom_flashcards_data');
+    if (saved) {
+      appData = JSON.parse(saved);
+    } else {
+      appData = JSON.parse(JSON.stringify(DEFAULT_DATA)); // ディープコピー
+    }
+  } catch (e) {
+    appData = JSON.parse(JSON.stringify(DEFAULT_DATA));
+  }
+  // ★修正: 空のときに「新しいセット」を入れた後、改めて keys を取り直す
+  if (Object.keys(appData).length === 0) {
+    appData["新しいセット"] = [{front:"", back:""}];
+  }
+  currentSetName = Object.keys(appData)[0];
+}
+
+function saveDataToStorage() {
+  // ★ 共有モード（子ども用URLで開いた状態）のときは localStorage を汚さない。
+  //   sessionStorage には残すので、リロードしても同じセットで遊べる。
+  if (isSharedMode) {
+    sessionStorage.setItem('custom_flashcards_shared_data', JSON.stringify(appData));
+    return;
+  }
+  localStorage.setItem('custom_flashcards_data', JSON.stringify(appData));
+}
+
+// ★ 実績の保存と読み込み
+function loadAchievements() {
+  try {
+    const saved = localStorage.getItem('custom_flashcards_achievements');
+    if (saved) {
+      achievements = JSON.parse(saved);
+    }
+  } catch(e) {}
+  updateAchievementUI();
+}
+
+function saveAchievements() {
+  localStorage.setItem('custom_flashcards_achievements', JSON.stringify(achievements));
+}
+
+function getTitle(perfects) {
+  let currentTitle = TITLES[0].name;
+  for (let t of TITLES) {
+    if (perfects >= t.min) currentTitle = t.name;
+  }
+  return currentTitle;
+}
+
+function updateAchievementUI() {
+  const p = achievements.perfects;
+  ui.startTitleBadge.textContent = getTitle(p);
+  ui.perfectCount.textContent = p;
+  
+  // ★修正: 外部URL（GitHub）依存をやめ、インラインSVGを data URI で使用。
+  //        学校のフィルタリング環境やオフラインでも必ず表示される。
+  ui.startStamps.innerHTML = '';
+  const imgUrl = HANAMARU_SVG_URL;
+  
+  if (p === 0) return;
+
+  // 20個までは画像を並べ、それ以上は「画像 × 21」のように表示
+  if (p <= 20) {
+    for (let i = 0; i < p; i++) {
+      const img = document.createElement('img');
+      img.src = imgUrl;
+      img.className = 'hanamaru-img';
+      ui.startStamps.appendChild(img);
+    }
+  } else {
+    const img = document.createElement('img');
+    img.src = imgUrl;
+    img.className = 'hanamaru-img';
+    ui.startStamps.appendChild(img);
+    
+    const text = document.createElement('span');
+    text.textContent = ` × ${p}`;
+    text.style.fontSize = '1.2rem';
+    text.style.fontWeight = 'bold';
+    text.style.color = '#475569';
+    ui.startStamps.appendChild(text);
+  }
+}
+
+// ==========================================
+// 4. ホーム（設定）画面ロジック
+// ==========================================
+function renderSelect() {
+  ui.setSelect.innerHTML = '';
+  ui.startSetSelect.innerHTML = ''; // スタート画面のセレクトも更新
+  
+  Object.keys(appData).forEach(name => {
+    // 先生用設定画面のプルダウン
+    const optHome = document.createElement('option');
+    optHome.value = name;
+    optHome.textContent = name;
+    if (name === currentSetName) optHome.selected = true;
+    ui.setSelect.appendChild(optHome);
+    
+    // 子供用スタート画面のプルダウン
+    const optStart = document.createElement('option');
+    optStart.value = name;
+    optStart.textContent = name;
+    if (name === currentSetName) optStart.selected = true;
+    ui.startSetSelect.appendChild(optStart);
+  });
+}
+
+function createDataRow(front = "", back = "") {
+  const row = document.createElement('div');
+  row.className = 'data-row';
+  
+  const inputFront = document.createElement('input');
+  inputFront.type = 'text';
+  inputFront.value = front;
+  inputFront.placeholder = '問題';
+  
+  const inputBack = document.createElement('input');
+  inputBack.type = 'text';
+  inputBack.value = back;
+  inputBack.placeholder = '答え';
+  
+  const delBtn = document.createElement('button');
+  delBtn.className = 'del-row-btn';
+  delBtn.innerHTML = '✖';
+  delBtn.title = '行を削除';
+  delBtn.onclick = () => {
+    row.remove();
+  };
+  
+  row.appendChild(inputFront);
+  row.appendChild(inputBack);
+  row.appendChild(delBtn);
+  
+  return row;
+}
+
+function loadSetToEditor() {
+  ui.dataTable.innerHTML = '';
+  const data = appData[currentSetName] || [];
+  
+  if (data.length === 0) {
+    ui.dataTable.appendChild(createDataRow());
+  } else {
+    data.forEach(item => {
+      ui.dataTable.appendChild(createDataRow(item.front, item.back));
+    });
+  }
+}
+
+function parseEditorData() {
+  const parsed = [];
+  const rows = ui.dataTable.querySelectorAll('.data-row');
+  rows.forEach(row => {
+    const inputs = row.querySelectorAll('input');
+    const front = inputs[0].value.trim();
+    const back = inputs[1].value.trim();
+    if (front || back) { // どちらかが入力されていれば保存対象
+      parsed.push({
+        front: front,
+        back: back || '（答えなし）'
+      });
+    }
+  });
+  // ★ もしすべて削除されていたら空の枠を作る
+  return parsed.length > 0 ? parsed : [{front:"", back:""}];
+}
+
+// 引数 showMsg でトースト通知をコントロール
+function saveCurrentSet(showMsg = true) {
+  appData[currentSetName] = parseEditorData();
+  saveDataToStorage();
+  if (showMsg) showToast("データを保存しました");
+}
+
+function showToast(msg) {
+  ui.toast.textContent = msg;
+  ui.toast.classList.add('show');
+  setTimeout(() => ui.toast.classList.remove('show'), 3000);
+}
+
+// ==========================================
+// ★ モーダル入力処理
+// ==========================================
+// ★ HTMLエスケープ（改行を <br> に差し替える前の前処理に使う）
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// ★ クリップボードへコピー（モダンAPI優先、非対応時は従来手法にフォールバック）
+async function copyToClipboard(text) {
+  // iOS Safari でも動く navigator.clipboard が使えれば優先
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      // 失敗したらフォールバックへ
+    }
+  }
+  // フォールバック（古いブラウザ向け）
+  try {
+    const tempInput = document.createElement('textarea');
+    tempInput.value = text;
+    tempInput.style.position = 'fixed';
+    tempInput.style.top = '-1000px';
+    tempInput.style.opacity = '0';
+    document.body.appendChild(tempInput);
+    tempInput.focus();
+    tempInput.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(tempInput);
+    return ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+let modalCallback = null;
+function showInputModal(title, defaultText, callback, isPassword = false) {
+  // ★修正: \n を <br> に置換してどのブラウザでも確実に改行させる
+  //       （HTMLインジェクション対策として title 文字列は先にエスケープする）
+  ui.modalTitle.innerHTML = escapeHtml(title).replace(/\n/g, '<br>');
+  ui.modalInput.type = isPassword ? 'password' : 'text'; // パスワードモード対応
+  ui.modalInput.value = defaultText;
+  modalCallback = callback;
+  ui.modal.classList.add('active');
+  ui.modalInput.focus();
+}
+
+ui.modalCancel.addEventListener('click', () => {
+  ui.modal.classList.remove('active');
+});
+
+ui.modalOk.addEventListener('click', () => {
+  ui.modal.classList.remove('active');
+  if (modalCallback) modalCallback(ui.modalInput.value);
+});
+
+// モーダル内でEnterキーを押した時にも決定する
+ui.modalInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') ui.modalOk.click();
+});
+
+// ==========================================
+// ★ 確認モーダル処理
+// ==========================================
+let confirmCallback = null;
+function showConfirmModal(msg, callback, okLabel = '削除する', okStyle = 'bad') {
+  // ★修正: \n を <br> に置換して改行対応。OKボタンの文言・色も切り替え可能に。
+  ui.confirmMsg.innerHTML = escapeHtml(msg).replace(/\n/g, '<br>');
+  ui.confirmOk.textContent = okLabel;
+  // ボタンの色を文脈に合わせて切替（'bad'=赤、'primary'=青、'good'=緑）
+  ui.confirmOk.classList.remove('bad', 'primary', 'good');
+  ui.confirmOk.classList.add(okStyle);
+  confirmCallback = callback;
+  ui.confirmModal.classList.add('active');
+}
+ui.confirmCancel.addEventListener('click', () => { ui.confirmModal.classList.remove('active'); });
+ui.confirmOk.addEventListener('click', () => {
+  ui.confirmModal.classList.remove('active');
+  if (confirmCallback) confirmCallback();
+});
+
+// ==========================================
+// ★ アラートモーダル処理
+// ==========================================
+function showAlertModal(msg) {
+  // ★修正: \n を <br> に置換して確実に改行させる
+  ui.alertMsg.innerHTML = escapeHtml(msg).replace(/\n/g, '<br>');
+  ui.alertModal.classList.add('active');
+}
+ui.alertOk.addEventListener('click', () => { ui.alertModal.classList.remove('active'); });
+
+
+// ==========================================
+// ★ 一括入力（Excelコピペ）処理
+// ==========================================
+ui.bulkInputBtn.addEventListener('click', () => {
+  ui.bulkInputArea.value = ''; // テキストエリアを空にする
+  ui.bulkModal.classList.add('active');
+  ui.bulkInputArea.focus();
+});
+
+ui.bulkCancel.addEventListener('click', () => {
+  ui.bulkModal.classList.remove('active');
+});
+
+ui.bulkOk.addEventListener('click', () => {
+  const text = ui.bulkInputArea.value;
+  if (!text.trim()) {
+    ui.bulkModal.classList.remove('active');
+    return;
+  }
+  
+  const lines = text.split('\n'); // 改行で区切って1行ずつの配列にする
+  const newData = [];
+  
+  lines.forEach(line => {
+    if (!line.trim()) return; // 空行は無視
+    
+    let front = '';
+    let back = '';
+    
+    // Excelからコピーすると、セルとセルの間は「タブ（\t）」になります
+    if (line.includes('\t')) {
+      const parts = line.split('\t');
+      front = parts[0] ? parts[0].trim() : '';
+      back = parts[1] ? parts[1].trim() : '（答えなし）';
+    } else {
+      // カンマ区切り（CSV）の場合にも対応しておく
+      const parts = line.split(',');
+      front = parts[0] ? parts[0].trim() : '';
+      back = parts[1] ? parts[1].trim() : '（答えなし）';
+    }
+    
+    if (front || back) {
+      newData.push({ front, back });
+    }
+  });
+  
+  if (newData.length > 0) {
+    saveCurrentSet(false); // 現在入力されている表のデータを一旦保存
+    
+    const currentData = appData[currentSetName] || [];
+    
+    // もし初期の空の行だけなら、それを消して置き換える
+    let mergedData = [];
+    if (currentData.length === 1 && currentData[0].front === "" && currentData[0].back === "") {
+      mergedData = newData;
+    } else {
+      // 既存のデータの後ろに、新しく読み込んだデータを合体（追加）させる
+      mergedData = [...currentData, ...newData];
+    }
+    
+    appData[currentSetName] = mergedData;
+    loadSetToEditor(); // 表を書き換える
+    saveDataToStorage();
+    showToast(`${newData.length}件のデータを追加しました！`);
+  }
+  
+  ui.bulkModal.classList.remove('active');
+});
+
+// ==========================================
+// 画面遷移イベント
+ui.goSettingsBtn.addEventListener('click', () => {
+  if (isSharedMode) return; // 念のため、共有モードなら何もしない
+
+  if (!adminPassword) {
+    // 初回パスワード設定
+    showInputModal("【初回設定】\n先生用のパスワードを決めてください", "", (pw) => {
+      const trimmed = (pw || '').trim();
+      if (trimmed) {
+        adminPassword = trimmed;
+        localStorage.setItem('custom_flashcards_password', trimmed);
+        showAlertModal("パスワードを設定しました。\n次回から設定画面を開く際に必要になります。");
+        loadSetToEditor();
+        showView('home');
+      }
+    }, true);
+  } else {
+    // パスワード確認
+    showInputModal("先生用のパスワードを入力してください", "", (pw) => {
+      if (pw === adminPassword) {
+        loadSetToEditor();
+        showView('home');
+      } else if (pw) {
+        showAlertModal("パスワードが違います！");
+      }
+    }, true);
+  }
+});
+
+ui.closeSettingsBtn.addEventListener('click', () => {
+  saveCurrentSet(); // 戻る時に自動保存
+  showView('start');
+});
+
+ui.saveBtn.addEventListener('click', () => {
+  saveCurrentSet();
+  showView('start');
+});
+
+// パスワード変更ボタンの処理
+ui.changePwBtn.addEventListener('click', () => {
+  showInputModal("新しいパスワードを入力してください", "", (pw) => {
+    const trimmed = (pw || '').trim();
+    if (trimmed) {
+      adminPassword = trimmed;
+      localStorage.setItem('custom_flashcards_password', trimmed);
+      showToast("パスワードを変更しました");
+    }
+  }, true);
+});
+
+// イベントリスナー (ホーム/スタート共通)
+ui.setSelect.addEventListener('change', (e) => {
+  saveCurrentSet(false); // 切り替え前に保存(トースト抑制)
+  currentSetName = e.target.value;
+  loadSetToEditor();
+  ui.startSetSelect.value = currentSetName; // スタート画面の選択も同期
+});
+
+ui.startSetSelect.addEventListener('change', (e) => {
+  currentSetName = e.target.value;
+  ui.setSelect.value = currentSetName; // 設定画面の選択も同期
+});
+
+ui.addRowBtn.addEventListener('click', () => {
+  ui.dataTable.appendChild(createDataRow());
+  ui.dataTable.scrollTop = ui.dataTable.scrollHeight; // 追加後、一番下までスクロール
+});
+
+ui.renameSetBtn.addEventListener('click', () => {
+  saveCurrentSet(false); // 最新の状態を保存(トースト抑制)
+  showInputModal("新しい名前を入力してください", currentSetName, (newName) => {
+    // ★修正: trim()した結果で処理を統一
+    const trimmed = (newName || '').trim();
+    if (!trimmed || trimmed === currentSetName) return;
+    if (appData[trimmed]) {
+      showAlertModal("その名前のセットは既に存在します。別の名前を指定してください。");
+      return;
+    }
+    // データを新しい名前に移動
+    appData[trimmed] = appData[currentSetName];
+    delete appData[currentSetName];
+    currentSetName = trimmed;
+    
+    renderSelect();
+    saveDataToStorage();
+    showToast("名前を変更しました！");
+  });
+});
+
+ui.newSetBtn.addEventListener('click', () => {
+  saveCurrentSet(false); // トースト抑制
+  showInputModal("新しいセットの名前を入力してください", "", (name) => {
+    // ★修正: trim()した結果で処理を統一する
+    const trimmedName = (name || '').trim();
+    if (!trimmedName) {
+      // 空欄や空白だけの入力は何もせず終了（ユーザーがキャンセル相当の操作をしたとみなす）
+      return;
+    }
+    if (appData[trimmedName]) {
+      showAlertModal("その名前のセットは既に存在します。");
+      return;
+    }
+    appData[trimmedName] = [{front:"新しい問題", back:"新しい答え"}];
+    currentSetName = trimmedName;
+    renderSelect();
+    loadSetToEditor();
+    saveDataToStorage();
+    showToast("新しく追加しました！");
+  });
+});
+
+// ★ 削除ボタンの処理を変更（独自の確認画面を使う）
+ui.delSetBtn.addEventListener('click', () => {
+  showConfirmModal(`問題セット「${currentSetName}」を削除しますか？`, () => {
+    delete appData[currentSetName];
+    
+    // 全部のセットが消えた場合は、空のセットを1つ作ってあげる
+    if (Object.keys(appData).length === 0) {
+      appData["新しい問題セット"] = [{front: "", back: ""}];
+    }
+    
+    currentSetName = Object.keys(appData)[0];
+    renderSelect();
+    loadSetToEditor();
+    saveDataToStorage();
+    showToast("🗑️ 削除しました");
+  });
+});
+
+// 共有ボタン：全セットまとめて子ども用URLにする
+ui.shareAllBtn.addEventListener('click', () => {
+  saveCurrentSet(false); // 編集中の内容を反映（トースト抑制）
+  
+  const setCount = Object.keys(appData).length;
+  if (setCount === 0) {
+    showAlertModal("共有できる問題セットがありません。");
+    return;
+  }
+  
+  showConfirmModal(
+    `今ある ${setCount} 個の問題セットすべてを、子ども用URLにします。\n\n（このURLを開いた子どもの端末は、先生が今持っているセットと完全に同じ状態になります）`,
+    () => {
+      try {
+        // appData全体をエンコード
+        const jsonStr = JSON.stringify(appData);
+        const encodedStr = btoa(unescape(encodeURIComponent(jsonStr)));
+        const baseUrl = window.location.origin + window.location.pathname;
+        const shareUrl = `${baseUrl}?shareAll=${encodeURIComponent(encodedStr)}`;
+        
+        copyToClipboard(shareUrl).then(ok => {
+          if (ok) {
+            showToast(`${setCount}個のセットをまとめてコピーしました!`);
+          } else {
+            showAlertModal("リンクのコピーに失敗しました。");
+          }
+        });
+      } catch(e) {
+        showAlertModal("リンクの作成に失敗しました。問題の数が多すぎる可能性があります。");
+      }
+    },
+    'URLを作る',
+    'primary'
+  );
+});
+
+// ==========================================
+// 5. プレイ画面ロジック
+// ==========================================
+function startTest() {
+  const baseData = appData[currentSetName];
+  const mode = ui.startModeSelect.value;
+  
+  // ★追加: セットが見つからない場合のガード
+  if (!baseData || !Array.isArray(baseData)) {
+    showAlertModal("問題セットが見つかりません。\nセットを選び直してください。");
+    return;
+  }
+  
+  // 空のデータが含まれている場合は除外してテストを始める
+  let validData = baseData.filter(item => item.front.trim() !== '' || item.back.trim() !== '');
+  
+  if (validData.length === 0) {
+    showAlertModal("問題データがありません。設定から問題を追加してください！");
+    return;
+  }
+  
+  // 配列をシャッフル
+  let shuffled = [...validData].sort(() => Math.random() - 0.5);
+  
+  // ★修正: モードごとに必要数を決め、足りない場合は通知してから出題
+  let requested = null;
+  if (mode === 'random10') requested = 10;
+  else if (mode === 'random20') requested = 20;
+  
+  if (requested !== null && validData.length < requested) {
+    showAlertModal(`このセットには ${validData.length} 問しかありません。\n${validData.length} 問すべてを出題します。`);
+    playDeck = shuffled;
+  } else if (requested !== null) {
+    playDeck = shuffled.slice(0, requested);
+  } else {
+    playDeck = shuffled;
+  }
+
+  wrongCards = [];
+  stats = { ok: 0, ng: 0 };
+  currentCardIndex = 0;
+  isRetry = false; // ★ 最初のテストなのでやり直しフラグをリセット
+  
+  updateCardUI();
+  showView('play');
+}
+
+function updateCardUI() {
+  isFlipped = false;
+  ui.card.classList.remove('flipped');
+  
+  // アニメーション完了を少し待って文字を書き換える
+  setTimeout(() => {
+    const card = playDeck[currentCardIndex];
+    ui.cardFront.textContent = card.front;
+    ui.cardBack.textContent = card.back;
+    ui.currNum.textContent = currentCardIndex + 1;
+    ui.totalNum.textContent = playDeck.length;
+    
+    // ボタン状態リセット
+    ui.revealBtn.disabled = false;
+    ui.okBtn.disabled = true;
+    ui.ngBtn.disabled = true;
+  }, 150);
+}
+
+function revealCard() {
+  if (isFlipped) return;
+  isFlipped = true;
+  ui.card.classList.add('flipped');
+  
+  ui.revealBtn.disabled = true;
+  ui.okBtn.disabled = false;
+  ui.ngBtn.disabled = false;
+}
+
+function markCard(isOk) {
+  if (!isFlipped) return;
+  
+  if (isOk) {
+    stats.ok++;
+    // ★修正: Web Audio による合成音の呼び出しに変更
+    try { sounds.ok.play(); } catch(e) {}
+  } else {
+    stats.ng++;
+    wrongCards.push(playDeck[currentCardIndex]);
+    try { sounds.ng.play(); } catch(e) {}
+  }
+  
+  currentCardIndex++;
+  
+  if (currentCardIndex >= playDeck.length) {
+    setTimeout(showResult, 400); // 最後のカード処理後にリザルトへ
+  } else {
+    updateCardUI();
+  }
+}
+
+// プレイ画面のイベントリスナー
+ui.startTestBtn.addEventListener('click', startTest);
+ui.card.addEventListener('click', revealCard);
+ui.revealBtn.addEventListener('click', revealCard);
+ui.okBtn.addEventListener('click', () => markCard(true));
+ui.ngBtn.addEventListener('click', () => markCard(false));
+ui.backHomeBtn.addEventListener('click', () => {
+  // ★修正: 子どもが誤タップしても途中結果を失わないよう、確認ダイアログを出す
+  showConfirmModal("テストを中止して、最初の画面にもどりますか？\n※いまの途中経過は消えます", () => {
+    showView('start');
+  }, 'やめる');
+});
+
+// キーボード操作対応
+window.addEventListener('keydown', (e) => {
+  if (views.play.classList.contains('active')) {
+    if (e.code === 'Space') { e.preventDefault(); revealCard(); }
+    if ((e.key.toLowerCase() === 'o' || e.key === 'ArrowRight') && !ui.okBtn.disabled) markCard(true);
+    if ((e.key.toLowerCase() === 'x' || e.key === 'ArrowLeft') && !ui.ngBtn.disabled) markCard(false);
+  }
+});
+
+// ==========================================
+// 6. 結果画面ロジック
+// ==========================================
+function showResult() {
+  const total = stats.ok + stats.ng;
+  const ratio = Math.round((stats.ok / total) * 100) || 0;
+  
+  ui.resScore.textContent = `${ratio}%`;
+  ui.resOk.textContent = stats.ok;
+  ui.resNg.textContent = stats.ng;
+  
+  ui.newTitleMsg.style.display = 'none';
+  ui.resultStamp.innerHTML = '';
+  
+  if (stats.ng > 0) {
+    ui.resTitle.textContent = "おつかれさま！";
+    ui.retryNgBtn.style.display = 'block';
+  } else {
+    ui.retryNgBtn.style.display = 'none';
+    
+    // ★ 1回目（最初から）のテストで全問正解した場合のみ、パーフェクト扱いにする
+    if (!isRetry) {
+      ui.resTitle.textContent = "パーフェクト！🎉";
+      
+      // ★ 実績更新
+      const oldTitle = getTitle(achievements.perfects);
+      achievements.perfects++;
+      saveAchievements();
+      const newTitle = getTitle(achievements.perfects);
+      
+      // ★修正: インラインSVGを使用（外部URL依存を排除）
+      const stampEl = document.createElement('img');
+      stampEl.src = HANAMARU_SVG_URL;
+      stampEl.className = 'stamp-anim hanamaru-large';
+      ui.resultStamp.appendChild(stampEl);
+      
+      if (oldTitle !== newTitle) {
+        ui.newTitleName.textContent = newTitle;
+        ui.newTitleMsg.style.display = 'block';
+        setTimeout(triggerConfetti, 500); // 称号アップ時は少し遅らせて豪華に
+      } else {
+        setTimeout(triggerConfetti, 300);
+      }
+      
+      updateAchievementUI(); // スタート画面の表示を裏で更新
+      
+    } else {
+      // ★ やり直し（復習）でクリアした場合はスタンプ等の報酬はなし
+      ui.resTitle.textContent = "復習クリア！";
+    }
+  }
+  
+  showView('result');
+}
+
+function triggerConfetti() {
+  if (typeof confetti === 'function') {
+    confetti({
+      particleCount: 150,
+      spread: 80,
+      origin: { y: 0.6 },
+      colors: ['#38bdf8', '#22c55e', '#a8edea', '#fed6e3']
+    });
+  }
+}
+
+// ★ 先生に報告するボタンの処理
+ui.reportBtn.addEventListener('click', () => {
+  showInputModal("あなたの名前を教えてください", "", (studentName) => {
+    if (studentName && studentName.trim()) {
+      const total = stats.ok + stats.ng;
+      const reportText = `${studentName}さん：「${currentSetName}」 ${total}問中 ${stats.ok}問正解でした！`;
+      
+      // ★修正: navigator.clipboard 優先でコピー（iOS Safari対応）
+      copyToClipboard(reportText).then(ok => {
+        if (ok) {
+          showToast("結果をコピーしました！先生に貼り付けて送ってね。");
+        } else {
+          showAlertModal("コピーに失敗しました。\n次のメッセージを手で書き写してください:\n\n" + reportText);
+        }
+      });
+    }
+  });
+});
+
+ui.retryNgBtn.addEventListener('click', () => {
+  // 間違えた問題だけで再構築
+  playDeck = [...wrongCards].sort(() => Math.random() - 0.5);
+  wrongCards = [];
+  stats = { ok: 0, ng: 0 };
+  currentCardIndex = 0;
+  isRetry = true; // ★ やり直し（復習）モードのフラグを立てる
+  updateCardUI();
+  showView('play');
+});
+
+ui.retryAllBtn.addEventListener('click', startTest);
+ui.toHomeBtn.addEventListener('click', () => showView('start'));
+
+// ==========================================
+// ユーティリティ
+// ==========================================
+function showView(viewId) {
+  Object.values(views).forEach(v => v.classList.remove('active'));
+  views[viewId].classList.add('active');
+}
+
+// 起動
+initApp();
+</script>
+</body>
+</html>
